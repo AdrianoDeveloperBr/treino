@@ -93,6 +93,10 @@
   <header class="topbar">
     <h1>Meu Treino</h1>
     <button id="btnAtualizar" class="btn">Atualizar (padrão)</button>
+    <label for="vol" class="btn" style="display:flex;align-items:center;gap:8px">
+      🔊 Volume
+      <input id="vol" type="range" min="0" max="1" step="0.01" value="0.06" style="width:120px">
+    </label>
   </header>
 
   <main class="page">
@@ -105,39 +109,55 @@
     // Timers ativos por exercício (chave: `${mi}-${ei}`)
     const timers = new Map();
 
+    const VOL_KEY = "treinoVolumeV1";
+
+    // define um volume padrão diferente para mobile/desktop
+    function getDefaultVolume() {
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      return isMobile ? 0.04 : 0.06;
+    }
+    function loadVolume() {
+      const v = Number(localStorage.getItem(VOL_KEY));
+      return Number.isFinite(v) ? v : getDefaultVolume();
+    }
+    function saveVolume(v) {
+      localStorage.setItem(VOL_KEY, String(v));
+    }
+
+    let userVol = loadVolume();
+
     // ---- Som (WebAudio) ----
     let audioCtx;
     function ensureAudio() {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // Em alguns navegadores, precisa de gesto do usuário (o clique no "Descansar" já resolve)
       if (audioCtx.state === "suspended") audioCtx.resume();
     }
 
-    // Toca 3 bipes curtinhos (agudo médio-baixo)
+    // Toca 3 bipes; volume controlado por userVol (0..1)
     function playChime() {
       ensureAudio();
       const now = audioCtx.currentTime;
 
       const notes = [880, 660, 880];   // Hz
-      const gaps  = [0,   0.18, 0.36]; // segundos de início
-      const dur   = 0.15;              // duração de cada beep
-      const vol   = 1.00;              // volume (ganho) baixo
+      const starts = [0,   0.18, 0.36]; // s
+      const dur = 0.15;                 // s
+      const vol = Math.max(0.0005, userVol); // garante > 0
 
       notes.forEach((freq, i) => {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, now + gaps[i]);
+        osc.frequency.setValueAtTime(freq, now + starts[i]);
 
-        // envelope rápido pra evitar "click"
-        gain.gain.setValueAtTime(0.0001, now + gaps[i]);
-        gain.gain.exponentialRampToValueAtTime(vol, now + gaps[i] + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + gaps[i] + dur);
+        // envelope com seu volume
+        gain.gain.setValueAtTime(0.0001, now + starts[i]);
+        gain.gain.exponentialRampToValueAtTime(vol, now + starts[i] + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + starts[i] + dur);
 
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start(now + gaps[i]);
-        osc.stop(now + gaps[i] + dur + 0.02);
+        osc.start(now + starts[i]);
+        osc.stop(now + starts[i] + dur + 0.02);
       });
     }
 
@@ -489,6 +509,17 @@
       renderTreino();
     }
     document.getElementById("btnAtualizar").addEventListener("click", resetToDefaults);
+
+    const volEl = document.getElementById("vol");
+    if (volEl) {
+      volEl.value = String(userVol);
+      volEl.addEventListener("input", (e) => {
+        userVol = Number(e.target.value) || 0;
+        saveVolume(userVol);
+        playChime();
+      });
+    }
+
 
     renderTreino();
   </script>
