@@ -5,12 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Controle de Treino</title>
   <style>
-    :root{
-      --radius:14px;
-      --pad:12px;
-    }
+    :root{ --radius:14px; --pad:12px; }
     *{box-sizing:border-box}
     body{font-family:system-ui,Arial,sans-serif;margin:0;background:#f6f7f9;color:#111}
+
     /* App bar */
     .topbar{
       position:sticky; top:0; z-index:10;
@@ -25,22 +23,24 @@
       box-shadow:0 1px 2px rgba(0,0,0,.05);
     }
     .btn:active{transform:scale(.98)}
+    .btn-sm{padding:8px 12px; font-size:14px}
     .page{padding:16px clamp(12px,4vw,24px)}
     .hint{color:#6b7280; font-size:12px; margin:6px 2px 16px}
 
-    /* Card do músculo (accordion leve) */
+    /* Card do músculo */
     .card{background:#fff;border:1px solid #e5e7eb;border-radius:var(--radius);margin-bottom:14px;overflow:hidden}
     .card-head{
       display:flex; align-items:center; justify-content:space-between; gap:10px;
-      padding:12px var(--pad);
+      padding:12px var(--pad); cursor:pointer;
     }
     .title-wrap{display:flex; align-items:center; gap:10px; flex:1; min-width:0}
+    .chev{font-size:18px; line-height:1; width:1.4em; text-align:center}
     .title-wrap h2{font-size:16px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
     .feito{ text-decoration: line-through; color:#6b7280 }
     .actions{display:flex; gap:8px}
-    .btn-sm{padding:8px 12px; font-size:14px}
+    .actions .btn{cursor:pointer}
 
-    /* Barra de progresso */
+    /* Progresso */
     .progress{height:6px; background:#f1f5f9; border-radius:999px; overflow:hidden}
     .progress > span{display:block;height:100%;background:#10b981}
 
@@ -50,11 +50,11 @@
     th{background:#fafafa; font-size:12px; color:#6b7280}
     input[type="number"], input[type="text"]{
       width:100%; max-width:110px; padding:10px; border:1px solid #e5e7eb; border-radius:10px;
-      font-size:16px; /* evita zoom no iOS */
+      font-size:16px;
     }
     input[type="checkbox"]{width:22px; height:22px}
 
-    /* MOBILE FIRST: colapsa a tabela em cards de linhas */
+    /* MOBILE FIRST: colapsa tabela em cartões de linhas */
     @media (max-width: 700px){
       .table-wrap{padding:0 var(--pad) var(--pad)}
       table, thead, tbody, th, td, tr{display:block}
@@ -66,16 +66,26 @@
         font-size:12px; color:#6b7280; flex:1; text-align:left;
       }
       td > *{flex:1; text-align:right}
-      /* Nome do exercício ocupa linha inteira */
       td[data-label="Exercício"]{font-weight:700; font-size:14px}
       td[data-label="Concluído"]{justify-content:flex-start}
       td[data-label="Concluído"] > *{flex:0}
+      .timer-wrap{display:flex; gap:8px; justify-content:flex-end}
     }
-
-    /* Desktop: tabela normal em um wrap com scroll horizontal suave, se necessário */
     @media (min-width: 701px){
       .table-wrap{padding:0 var(--pad) var(--pad); overflow:auto}
-      table{min-width:760px}
+      table{min-width:820px}
+      .timer-wrap{display:flex; gap:8px; justify-content:center}
+    }
+
+    /* Dark mode automático */
+    @media (prefers-color-scheme: dark){
+      body{background:#0b0c0f;color:#e5e7eb}
+      .topbar{background:#111827;border-bottom-color:#1f2937}
+      .btn{background:#111827;border-color:#374151;color:#e5e7eb}
+      .card{background:#0f172a;border-color:#1f2937}
+      th{background:#0b1220;color:#9ca3af}
+      td, th{border-top-color:#1f2937}
+      .progress{background:#1f2937}
     }
   </style>
 </head>
@@ -91,12 +101,35 @@
   </main>
 
   <script>
-    const STORAGE_KEY = "treinoDataMobileV1";
+    const STORAGE_KEY = "treinoDataMobileV2"; // nova versão de storage
+    // Timers ativos por exercício (chave: `${mi}-${ei}`)
+    const timers = new Map();
+
+    // ---- Helpers de tempo ----
+    function parseRestToSeconds(v){
+      if(!v) return 60;
+      v = (v+"").trim().toLowerCase();
+      if (/^\d+$/.test(v)) return parseInt(v,10);               // "90"
+      if (/^\d+\s*s$/.test(v)) return parseInt(v,10);           // "90s"
+      if (/^\d+\s*m$/.test(v)) return parseInt(v,10)*60;        // "2m"
+      if (/^\d{1,2}:\d{2}$/.test(v)){                           // "01:30"
+        const [mm,ss]=v.split(":").map(n=>parseInt(n,10)); return (mm*60)+ss;
+      }
+      // "1m30s"
+      const m = v.match(/(\d+)m/), s = v.match(/(\d+)s/);
+      if(m||s) return (m?parseInt(m[1],10)*60:0)+(s?parseInt(s[1],10):0);
+      return 60;
+    }
+    function formatSeconds(total){
+      const m = Math.floor(total/60), s = total%60;
+      return (m>0? String(m).padStart(1,"0")+":" : "") + String(s).padStart(2,"0");
+    }
 
     function getDefaultTreino() {
       return [
         {
           musculo: "Peito",
+          colapsado: false,
           listaExercicios: [
             { exercicio: "Supino reto barra", series: 4, repeticoes: "6-8", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
             { exercicio: "Supino inclinado halter", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
@@ -107,6 +140,7 @@
         },
         {
           musculo: "Costas",
+          colapsado: false,
           listaExercicios: [
             { exercicio: "Barra fixa ou puxada alta", series: 4, repeticoes: "6-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
             { exercicio: "Remada curvada barra", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
@@ -117,6 +151,7 @@
         },
         {
           musculo: "Pernas",
+          colapsado: false,
           listaExercicios: [
             { exercicio: "Agachamento livre", series: 4, repeticoes: "6-8", peso: 0, tempo_descanso: "120s", series_feitas: 0, concluido: false },
             { exercicio: "Leg press", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
@@ -128,6 +163,7 @@
         },
         {
           musculo: "Ombros",
+          colapsado: false,
           listaExercicios: [
             { exercicio: "Desenvolvimento militar", series: 4, repeticoes: "6-8", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
             { exercicio: "Elevação lateral", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
@@ -138,6 +174,7 @@
         },
         {
           musculo: "Biceps + Triceps",
+          colapsado: false,
           listaExercicios: [
             { exercicio: "Rosca direta barra", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
             { exercicio: "Rosca alternada halter", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
@@ -173,7 +210,50 @@
       if (ex.series_feitas > ex.series) ex.series_feitas = ex.series;
     }
 
+    // Inicia cronômetro para um exercício
+    function startRestTimer(mi, ei, button){
+      const key = `${mi}-${ei}`;
+      if (timers.has(key)) return; // já existe
+
+      const ex = treino[mi].listaExercicios[ei];
+      const total = parseRestToSeconds(ex.tempo_descanso);
+      let remaining = total;
+
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = `⏳ ${formatSeconds(remaining)}`;
+
+      const it = setInterval(() => {
+        remaining--;
+        if (remaining <= 0){
+          clearInterval(it);
+          timers.delete(key);
+          // incrementa série feita (sem passar do total)
+          ex.series_feitas = Math.min(ex.series, (ex.series_feitas||0)+1);
+          atualizarConcluidoExercicio(mi, ei);
+          atualizarConcluidoMusculo(mi);
+          saveTreino();
+          // vibra levemente no mobile
+          try{ navigator.vibrate && navigator.vibrate(120); }catch(_){}
+          // Re-render para refletir as mudanças e restaurar botão
+          renderTreino();
+        } else {
+          button.textContent = `⏳ ${formatSeconds(remaining)}`;
+        }
+      }, 1000);
+
+      timers.set(key, it);
+    }
+
+    function clearAllTimers(){
+      timers.forEach(id=>clearInterval(id));
+      timers.clear();
+    }
+
     function renderTreino(){
+      // Ao re-renderizar, aborta timers antigos para não duplicar
+      clearAllTimers();
+
       const container = document.getElementById("treino");
       container.innerHTML = "";
 
@@ -182,34 +262,36 @@
         const card = document.createElement("section");
         card.className = "card";
 
-        // Cabeçalho com título, botão limpar e barra de progresso
+        // Cabeçalho (toggle colapso)
         const head = document.createElement("div");
         head.className = "card-head";
+        head.addEventListener("click", () => {
+          m.colapsado = !m.colapsado;
+          saveTreino(); renderTreino();
+        });
 
         const titleWrap = document.createElement("div");
         titleWrap.className = "title-wrap";
+
+        const chev = document.createElement("div");
+        chev.className = "chev";
+        chev.textContent = m.colapsado ? "▸" : "▾";
+
         const h2 = document.createElement("h2");
         h2.textContent = m.musculo;
         if (m.concluido) h2.classList.add("feito");
-        titleWrap.appendChild(h2);
 
-        // Progresso (percentual concluído por exercício)
-        const done = m.listaExercicios.filter(e => e.concluido).length;
-        const total = m.listaExercicios.length || 1;
-        const pct = Math.round((done/total)*100);
-        const prog = document.createElement("div");
-        prog.className = "progress";
-        prog.title = `${pct}% concluído`;
-        const bar = document.createElement("span");
-        bar.style.width = pct + "%";
-        prog.appendChild(bar);
+        titleWrap.appendChild(chev);
+        titleWrap.appendChild(h2);
 
         const actions = document.createElement("div");
         actions.className = "actions";
         const btnLimpar = document.createElement("button");
         btnLimpar.className = "btn btn-sm";
         btnLimpar.textContent = "Limpar";
-        btnLimpar.addEventListener("click", () => {
+        // impedir que o clique no botão dispare o toggle do card
+        btnLimpar.addEventListener("click", (ev) => {
+          ev.stopPropagation();
           m.listaExercicios.forEach(ex => { ex.series_feitas = 0; ex.concluido = false; });
           m.concluido = false;
           saveTreino(); renderTreino();
@@ -220,128 +302,151 @@
         head.appendChild(actions);
         card.appendChild(head);
 
-        // Progresso logo abaixo do cabeçalho
+        // Progresso
+        const done = m.listaExercicios.filter(e => e.concluido).length;
+        const total = m.listaExercicios.length || 1;
+        const pct = Math.round((done/total)*100);
         const progWrap = document.createElement("div");
         progWrap.style.padding = "0 var(--pad) 8px";
+        const prog = document.createElement("div");
+        prog.className = "progress";
+        const bar = document.createElement("span");
+        bar.style.width = pct + "%";
+        prog.appendChild(bar);
+        prog.title = `${pct}% concluído`;
         progWrap.appendChild(prog);
         card.appendChild(progWrap);
 
-        // Tabela/lista de exercícios
-        const tableWrap = document.createElement("div");
-        tableWrap.className = "table-wrap";
-        const table = document.createElement("table");
+        // Corpo (pode estar colapsado)
+        if (!m.colapsado){
+          const tableWrap = document.createElement("div");
+          tableWrap.className = "table-wrap";
+          const table = document.createElement("table");
+          table.innerHTML = `
+            <thead>
+              <tr>
+                <th>Exercício</th>
+                <th>Séries</th>
+                <th>Reps</th>
+                <th>Peso</th>
+                <th>Descanso</th>
+                <th>Séries Feitas</th>
+                <th>Concluído</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          `;
+          const tbody = table.querySelector("tbody");
 
-        table.innerHTML = `
-          <thead>
-            <tr>
-              <th>Exercício</th>
-              <th>Séries</th>
-              <th>Reps</th>
-              <th>Peso</th>
-              <th>Descanso</th>
-              <th>Séries Feitas</th>
-              <th>Concluído</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        `;
-        const tbody = table.querySelector("tbody");
+          m.listaExercicios.forEach((ex, ei) => {
+            const tr = document.createElement("tr");
 
-        m.listaExercicios.forEach((ex, ei) => {
-          const tr = document.createElement("tr");
+            // Nome
+            const tdEx = document.createElement("td");
+            tdEx.setAttribute("data-label","Exercício");
+            tdEx.textContent = ex.exercicio;
+            if (ex.concluido) tdEx.classList.add("feito");
+            tr.appendChild(tdEx);
 
-          // Nome
-          const tdEx = document.createElement("td");
-          tdEx.setAttribute("data-label","Exercício");
-          tdEx.textContent = ex.exercicio;
-          if (ex.concluido) tdEx.classList.add("feito");
-          tr.appendChild(tdEx);
+            // Séries
+            const tdS = document.createElement("td");
+            tdS.setAttribute("data-label","Séries");
+            const inS = document.createElement("input");
+            inS.type="number"; inS.min="0"; inS.value=ex.series;
+            inS.addEventListener("change", e=>{
+              ex.series = Number(e.target.value)||0;
+              clampSeriesFeitas(mi, ei);
+              atualizarConcluidoExercicio(mi, ei);
+              atualizarConcluidoMusculo(mi);
+              saveTreino(); renderTreino();
+            });
+            tdS.appendChild(inS); tr.appendChild(tdS);
 
-          // Séries
-          const tdS = document.createElement("td");
-          tdS.setAttribute("data-label","Séries");
-          const inS = document.createElement("input");
-          inS.type="number"; inS.min="0"; inS.value=ex.series;
-          inS.addEventListener("change", e=>{
-            ex.series = Number(e.target.value)||0;
-            clampSeriesFeitas(mi, ei);
-            atualizarConcluidoExercicio(mi, ei);
-            atualizarConcluidoMusculo(mi);
-            saveTreino(); renderTreino();
+            // Reps
+            const tdR = document.createElement("td");
+            tdR.setAttribute("data-label","Reps");
+            const inR = document.createElement("input");
+            inR.type="text"; inR.value=ex.repeticoes;
+            inR.addEventListener("change", e=>{
+              ex.repeticoes = e.target.value;
+              saveTreino();
+            });
+            tdR.appendChild(inR); tr.appendChild(tdR);
+
+            // Peso
+            const tdP = document.createElement("td");
+            tdP.setAttribute("data-label","Peso");
+            const inP = document.createElement("input");
+            inP.type="number"; inP.min="0"; inP.step="0.5"; inP.value=ex.peso;
+            inP.addEventListener("change", e=>{
+              ex.peso = Number(e.target.value)||0;
+              saveTreino();
+            });
+            tdP.appendChild(inP); tr.appendChild(tdP);
+
+            // Descanso + botão cronômetro
+            const tdD = document.createElement("td");
+            tdD.setAttribute("data-label","Descanso");
+            const wrapD = document.createElement("div");
+            wrapD.className = "timer-wrap";
+            const inD = document.createElement("input");
+            inD.type="text"; inD.value=ex.tempo_descanso;
+            inD.addEventListener("change", e=>{
+              ex.tempo_descanso = e.target.value;
+              saveTreino();
+            });
+            const btnTimer = document.createElement("button");
+            btnTimer.className = "btn btn-sm";
+            btnTimer.textContent = "Descansar";
+            btnTimer.addEventListener("click", (ev)=>{
+              ev.stopPropagation();
+              startRestTimer(mi, ei, btnTimer);
+            });
+            wrapD.appendChild(inD);
+            wrapD.appendChild(btnTimer);
+            tdD.appendChild(wrapD);
+            tr.appendChild(tdD);
+
+            // Séries Feitas
+            const tdSF = document.createElement("td");
+            tdSF.setAttribute("data-label","Séries Feitas");
+            const inSF = document.createElement("input");
+            inSF.type="number"; inSF.min="0"; inSF.value=ex.series_feitas ?? 0;
+            inSF.addEventListener("change", e=>{
+              ex.series_feitas = Number(e.target.value)||0;
+              clampSeriesFeitas(mi, ei);
+              atualizarConcluidoExercicio(mi, ei);
+              atualizarConcluidoMusculo(mi);
+              saveTreino(); renderTreino();
+            });
+            tdSF.appendChild(inSF); tr.appendChild(tdSF);
+
+            // Concluído
+            const tdC = document.createElement("td");
+            tdC.setAttribute("data-label","Concluído");
+            const chk = document.createElement("input");
+            chk.type="checkbox"; chk.checked=ex.concluido;
+            chk.addEventListener("change", e=>{
+              ex.concluido = e.target.checked;
+              if (ex.concluido){ ex.series_feitas = ex.series; }
+              else if (ex.series_feitas === ex.series){ ex.series_feitas = Math.max(0, ex.series-1); }
+              atualizarConcluidoMusculo(mi);
+              saveTreino(); renderTreino();
+            });
+            tdC.appendChild(chk); tr.appendChild(tdC);
+
+            tbody.appendChild(tr);
           });
-          tdS.appendChild(inS); tr.appendChild(tdS);
 
-          // Reps
-          const tdR = document.createElement("td");
-          tdR.setAttribute("data-label","Reps");
-          const inR = document.createElement("input");
-          inR.type="text"; inR.value=ex.repeticoes;
-          inR.addEventListener("change", e=>{
-            ex.repeticoes = e.target.value;
-            saveTreino();
-          });
-          tdR.appendChild(inR); tr.appendChild(tdR);
+          tableWrap.appendChild(table);
+          card.appendChild(tableWrap);
+        }
 
-          // Peso
-          const tdP = document.createElement("td");
-          tdP.setAttribute("data-label","Peso");
-          const inP = document.createElement("input");
-          inP.type="number"; inP.min="0"; inP.step="0.5"; inP.value=ex.peso;
-          inP.addEventListener("change", e=>{
-            ex.peso = Number(e.target.value)||0;
-            saveTreino();
-          });
-          tdP.appendChild(inP); tr.appendChild(tdP);
-
-          // Descanso
-          const tdD = document.createElement("td");
-          tdD.setAttribute("data-label","Descanso");
-          const inD = document.createElement("input");
-          inD.type="text"; inD.value=ex.tempo_descanso;
-          inD.addEventListener("change", e=>{
-            ex.tempo_descanso = e.target.value;
-            saveTreino();
-          });
-          tdD.appendChild(inD); tr.appendChild(tdD);
-
-          // Séries Feitas
-          const tdSF = document.createElement("td");
-          tdSF.setAttribute("data-label","Séries Feitas");
-          const inSF = document.createElement("input");
-          inSF.type="number"; inSF.min="0"; inSF.value=ex.series_feitas ?? 0;
-          inSF.addEventListener("change", e=>{
-            ex.series_feitas = Number(e.target.value)||0;
-            clampSeriesFeitas(mi, ei);
-            atualizarConcluidoExercicio(mi, ei);
-            atualizarConcluidoMusculo(mi);
-            saveTreino(); renderTreino();
-          });
-          tdSF.appendChild(inSF); tr.appendChild(tdSF);
-
-          // Concluído
-          const tdC = document.createElement("td");
-          tdC.setAttribute("data-label","Concluído");
-          const chk = document.createElement("input");
-          chk.type="checkbox"; chk.checked=ex.concluido;
-          chk.addEventListener("change", e=>{
-            ex.concluido = e.target.checked;
-            if (ex.concluido){ ex.series_feitas = ex.series; }
-            else if (ex.series_feitas === ex.series){ ex.series_feitas = Math.max(0, ex.series-1); }
-            atualizarConcluidoMusculo(mi);
-            saveTreino(); renderTreino();
-          });
-          tdC.appendChild(chk); tr.appendChild(tdC);
-
-          tbody.appendChild(tr);
-        });
-
-        tableWrap.appendChild(table);
-        card.appendChild(tableWrap);
-        container.appendChild(card);
+        document.getElementById("treino").appendChild(card);
       });
     }
 
-    // Atualizar (padrão) -> reseta para treino base
+    // Reset para o padrão
     function resetToDefaults(){
       treino = getDefaultTreino();
       saveTreino();
