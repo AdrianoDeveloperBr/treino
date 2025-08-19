@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Controle de Treino</title>
+  <style>
+    :root{
+      --radius:14px;
+      --pad:12px;
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,Arial,sans-serif;margin:0;background:#f6f7f9;color:#111}
+    /* App bar */
+    .topbar{
+      position:sticky; top:0; z-index:10;
+      background:#fff; border-bottom:1px solid #e5e7eb;
+      padding:12px clamp(12px,4vw,24px);
+      display:flex; align-items:center; gap:12px; justify-content:space-between;
+    }
+    .topbar h1{font-size:18px; margin:0}
+    .btn{
+      appearance:none; border:1px solid #d1d5db; background:#fff; border-radius:999px;
+      padding:10px 14px; font-weight:600; cursor:pointer;
+      box-shadow:0 1px 2px rgba(0,0,0,.05);
+    }
+    .btn:active{transform:scale(.98)}
+    .page{padding:16px clamp(12px,4vw,24px)}
+    .hint{color:#6b7280; font-size:12px; margin:6px 2px 16px}
+
+    /* Card do músculo (accordion leve) */
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:var(--radius);margin-bottom:14px;overflow:hidden}
+    .card-head{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:12px var(--pad);
+    }
+    .title-wrap{display:flex; align-items:center; gap:10px; flex:1; min-width:0}
+    .title-wrap h2{font-size:16px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .feito{ text-decoration: line-through; color:#6b7280 }
+    .actions{display:flex; gap:8px}
+    .btn-sm{padding:8px 12px; font-size:14px}
+
+    /* Barra de progresso */
+    .progress{height:6px; background:#f1f5f9; border-radius:999px; overflow:hidden}
+    .progress > span{display:block;height:100%;background:#10b981}
+
+    /* Tabela -> lista responsiva */
+    table{width:100%; border-collapse:collapse}
+    th, td{border-top:1px solid #f1f5f9; padding:10px; text-align:center}
+    th{background:#fafafa; font-size:12px; color:#6b7280}
+    input[type="number"], input[type="text"]{
+      width:100%; max-width:110px; padding:10px; border:1px solid #e5e7eb; border-radius:10px;
+      font-size:16px; /* evita zoom no iOS */
+    }
+    input[type="checkbox"]{width:22px; height:22px}
+
+    /* MOBILE FIRST: colapsa a tabela em cards de linhas */
+    @media (max-width: 700px){
+      .table-wrap{padding:0 var(--pad) var(--pad)}
+      table, thead, tbody, th, td, tr{display:block}
+      thead{display:none}
+      tr{background:#fff; border:1px solid #f3f4f6; border-radius:12px; margin-bottom:10px; padding:10px}
+      td{border-top:none; display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 6px}
+      td::before{
+        content:attr(data-label);
+        font-size:12px; color:#6b7280; flex:1; text-align:left;
+      }
+      td > *{flex:1; text-align:right}
+      /* Nome do exercício ocupa linha inteira */
+      td[data-label="Exercício"]{font-weight:700; font-size:14px}
+      td[data-label="Concluído"]{justify-content:flex-start}
+      td[data-label="Concluído"] > *{flex:0}
+    }
+
+    /* Desktop: tabela normal em um wrap com scroll horizontal suave, se necessário */
+    @media (min-width: 701px){
+      .table-wrap{padding:0 var(--pad) var(--pad); overflow:auto}
+      table{min-width:760px}
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Meu Treino</h1>
+    <button id="btnAtualizar" class="btn">Atualizar (padrão)</button>
+  </header>
+
+  <main class="page">
+    <p class="hint">Mudanças são salvas automaticamente no seu aparelho (localStorage).</p>
+    <div id="treino"></div>
+  </main>
+
+  <script>
+    const STORAGE_KEY = "treinoDataMobileV1";
+
+    function getDefaultTreino() {
+      return [
+        {
+          musculo: "Peito",
+          listaExercicios: [
+            { exercicio: "Supino reto barra", series: 4, repeticoes: "6-8", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Supino inclinado halter", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Crucifixo inclinado", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Crossover ou paralelas", series: 3, repeticoes: "12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false }
+          ],
+          concluido: false
+        },
+        {
+          musculo: "Costas",
+          listaExercicios: [
+            { exercicio: "Barra fixa ou puxada alta", series: 4, repeticoes: "6-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Remada curvada barra", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Remada baixa ou cavalinho", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Pulldown na corda", series: 3, repeticoes: "12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false }
+          ],
+          concluido: false
+        },
+        {
+          musculo: "Pernas",
+          listaExercicios: [
+            { exercicio: "Agachamento livre", series: 4, repeticoes: "6-8", peso: 0, tempo_descanso: "120s", series_feitas: 0, concluido: false },
+            { exercicio: "Leg press", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Cadeira extensora", series: 3, repeticoes: "12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Stiff / Terra romeno", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Panturrilha", series: 4, repeticoes: "12-15", peso: 0, tempo_descanso: "45s", series_feitas: 0, concluido: false }
+          ],
+          concluido: false
+        },
+        {
+          musculo: "Ombros",
+          listaExercicios: [
+            { exercicio: "Desenvolvimento militar", series: 4, repeticoes: "6-8", peso: 0, tempo_descanso: "90s", series_feitas: 0, concluido: false },
+            { exercicio: "Elevação lateral", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Elevação frontal", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Encolhimento trapézio", series: 3, repeticoes: "12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false }
+          ],
+          concluido: false
+        },
+        {
+          musculo: "Biceps + Triceps",
+          listaExercicios: [
+            { exercicio: "Rosca direta barra", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Rosca alternada halter", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Rosca martelo", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "45-60s", series_feitas: 0, concluido: false },
+            { exercicio: "Tríceps testa (barra/halter)", series: 3, repeticoes: "8-10", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Tríceps corda (pulley)", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false },
+            { exercicio: "Tríceps francês acima da cabeça", series: 3, repeticoes: "10-12", peso: 0, tempo_descanso: "60s", series_feitas: 0, concluido: false }
+          ],
+          concluido: false
+        }
+      ];
+    }
+
+    function loadTreino(){
+      try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+      return getDefaultTreino();
+    }
+    function saveTreino(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(treino)); }catch(e){} }
+
+    let treino = loadTreino();
+
+    function atualizarConcluidoExercicio(mi, ei){
+      const ex = treino[mi].listaExercicios[ei];
+      ex.concluido = Number(ex.series_feitas) === Number(ex.series) && ex.series > 0;
+    }
+    function atualizarConcluidoMusculo(mi){
+      const m = treino[mi];
+      m.concluido = m.listaExercicios.every(ex => ex.concluido);
+    }
+    function clampSeriesFeitas(mi, ei){
+      const ex = treino[mi].listaExercicios[ei];
+      if (ex.series_feitas < 0) ex.series_feitas = 0;
+      if (ex.series_feitas > ex.series) ex.series_feitas = ex.series;
+    }
+
+    function renderTreino(){
+      const container = document.getElementById("treino");
+      container.innerHTML = "";
+
+      treino.forEach((m, mi) => {
+        // Card do músculo
+        const card = document.createElement("section");
+        card.className = "card";
+
+        // Cabeçalho com título, botão limpar e barra de progresso
+        const head = document.createElement("div");
+        head.className = "card-head";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.className = "title-wrap";
+        const h2 = document.createElement("h2");
+        h2.textContent = m.musculo;
+        if (m.concluido) h2.classList.add("feito");
+        titleWrap.appendChild(h2);
+
+        // Progresso (percentual concluído por exercício)
+        const done = m.listaExercicios.filter(e => e.concluido).length;
+        const total = m.listaExercicios.length || 1;
+        const pct = Math.round((done/total)*100);
+        const prog = document.createElement("div");
+        prog.className = "progress";
+        prog.title = `${pct}% concluído`;
+        const bar = document.createElement("span");
+        bar.style.width = pct + "%";
+        prog.appendChild(bar);
+
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const btnLimpar = document.createElement("button");
+        btnLimpar.className = "btn btn-sm";
+        btnLimpar.textContent = "Limpar";
+        btnLimpar.addEventListener("click", () => {
+          m.listaExercicios.forEach(ex => { ex.series_feitas = 0; ex.concluido = false; });
+          m.concluido = false;
+          saveTreino(); renderTreino();
+        });
+
+        actions.appendChild(btnLimpar);
+        head.appendChild(titleWrap);
+        head.appendChild(actions);
+        card.appendChild(head);
+
+        // Progresso logo abaixo do cabeçalho
+        const progWrap = document.createElement("div");
+        progWrap.style.padding = "0 var(--pad) 8px";
+        progWrap.appendChild(prog);
+        card.appendChild(progWrap);
+
+        // Tabela/lista de exercícios
+        const tableWrap = document.createElement("div");
+        tableWrap.className = "table-wrap";
+        const table = document.createElement("table");
+
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Exercício</th>
+              <th>Séries</th>
+              <th>Reps</th>
+              <th>Peso</th>
+              <th>Descanso</th>
+              <th>Séries Feitas</th>
+              <th>Concluído</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        `;
+        const tbody = table.querySelector("tbody");
+
+        m.listaExercicios.forEach((ex, ei) => {
+          const tr = document.createElement("tr");
+
+          // Nome
+          const tdEx = document.createElement("td");
+          tdEx.setAttribute("data-label","Exercício");
+          tdEx.textContent = ex.exercicio;
+          if (ex.concluido) tdEx.classList.add("feito");
+          tr.appendChild(tdEx);
+
+          // Séries
+          const tdS = document.createElement("td");
+          tdS.setAttribute("data-label","Séries");
+          const inS = document.createElement("input");
+          inS.type="number"; inS.min="0"; inS.value=ex.series;
+          inS.addEventListener("change", e=>{
+            ex.series = Number(e.target.value)||0;
+            clampSeriesFeitas(mi, ei);
+            atualizarConcluidoExercicio(mi, ei);
+            atualizarConcluidoMusculo(mi);
+            saveTreino(); renderTreino();
+          });
+          tdS.appendChild(inS); tr.appendChild(tdS);
+
+          // Reps
+          const tdR = document.createElement("td");
+          tdR.setAttribute("data-label","Reps");
+          const inR = document.createElement("input");
+          inR.type="text"; inR.value=ex.repeticoes;
+          inR.addEventListener("change", e=>{
+            ex.repeticoes = e.target.value;
+            saveTreino();
+          });
+          tdR.appendChild(inR); tr.appendChild(tdR);
+
+          // Peso
+          const tdP = document.createElement("td");
+          tdP.setAttribute("data-label","Peso");
+          const inP = document.createElement("input");
+          inP.type="number"; inP.min="0"; inP.step="0.5"; inP.value=ex.peso;
+          inP.addEventListener("change", e=>{
+            ex.peso = Number(e.target.value)||0;
+            saveTreino();
+          });
+          tdP.appendChild(inP); tr.appendChild(tdP);
+
+          // Descanso
+          const tdD = document.createElement("td");
+          tdD.setAttribute("data-label","Descanso");
+          const inD = document.createElement("input");
+          inD.type="text"; inD.value=ex.tempo_descanso;
+          inD.addEventListener("change", e=>{
+            ex.tempo_descanso = e.target.value;
+            saveTreino();
+          });
+          tdD.appendChild(inD); tr.appendChild(tdD);
+
+          // Séries Feitas
+          const tdSF = document.createElement("td");
+          tdSF.setAttribute("data-label","Séries Feitas");
+          const inSF = document.createElement("input");
+          inSF.type="number"; inSF.min="0"; inSF.value=ex.series_feitas ?? 0;
+          inSF.addEventListener("change", e=>{
+            ex.series_feitas = Number(e.target.value)||0;
+            clampSeriesFeitas(mi, ei);
+            atualizarConcluidoExercicio(mi, ei);
+            atualizarConcluidoMusculo(mi);
+            saveTreino(); renderTreino();
+          });
+          tdSF.appendChild(inSF); tr.appendChild(tdSF);
+
+          // Concluído
+          const tdC = document.createElement("td");
+          tdC.setAttribute("data-label","Concluído");
+          const chk = document.createElement("input");
+          chk.type="checkbox"; chk.checked=ex.concluido;
+          chk.addEventListener("change", e=>{
+            ex.concluido = e.target.checked;
+            if (ex.concluido){ ex.series_feitas = ex.series; }
+            else if (ex.series_feitas === ex.series){ ex.series_feitas = Math.max(0, ex.series-1); }
+            atualizarConcluidoMusculo(mi);
+            saveTreino(); renderTreino();
+          });
+          tdC.appendChild(chk); tr.appendChild(tdC);
+
+          tbody.appendChild(tr);
+        });
+
+        tableWrap.appendChild(table);
+        card.appendChild(tableWrap);
+        container.appendChild(card);
+      });
+    }
+
+    // Atualizar (padrão) -> reseta para treino base
+    function resetToDefaults(){
+      treino = getDefaultTreino();
+      saveTreino();
+      renderTreino();
+    }
+    document.getElementById("btnAtualizar").addEventListener("click", resetToDefaults);
+
+    renderTreino();
+  </script>
+</body>
+</html>
